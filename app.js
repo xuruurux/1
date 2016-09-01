@@ -1,99 +1,85 @@
 var express = require('express');
-var path = require('path');
-var favicon = require('serve-favicon');
-var logger = require('morgan');
-var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-
-var routes = require('./routes/index');
-var users = require('./routes/users');
-var sdo = require('./routes/sdo');
-
-var debug = require('debug')('blog:server');
-var http = require('http');
-
-/**
- * Get port from environment and store in Express.
- */
-
+var modbus = require('jsmodbus');
 var app = express();
 
-var server = http.createServer(app);
-var io = require('socket.io').listen(server);
+app.use(bodyParser.urlencoded({ extended: true }))
 
-// view engine setup
-app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'ejs');
-
-app.set('port', 3000);
-app.set('socketio', io);
-
-// uncomment after placing your favicon in /public
-//app.use(favicon(path.join(__dirname, 'public', 'favicon.ico')));
-app.use(logger('dev'));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.use('/', routes);
-app.use('/users', users);
-app.use('/sdo', sdo);
-
-// catch 404 and forward to error handler
-app.use(function(req, res, next) {
-  var err = new Error('Not Found');
-  err.status = 404;
-  next(err);
+app.get('/', function(req, res){
+  var html = `
+  <html>
+    <script src="https://code.jquery.com/jquery-3.1.0.min.js"></script> 
+  <body>
+    <h2>Modbus</h2>
+    <h4>Read Register</h4>
+    <textarea rows="12" cols="50" id="read"></textarea>
+    <button id="read-btn">Read</button>
+    <h4>Write Register</h4>
+    offset
+    <input id="input1"/>
+    value
+    <input id="input2"/>
+    <button id="write-btn">write</button>
+  </body>
+  <script>
+    $('#read-btn').click(function(){
+      $.get('/api/modbus', function(data){
+        $('#read').val(JSON.stringify(data, null, 2))
+      })
+    })
+    $('#write-btn').click(function(){
+      $.post('/api/modbus', {input1: $('#input1').val(), input2: $('#input2').val()}, function(data){
+        $('#read').val(JSON.stringify(data, null, 2))
+      })
+    })
+  </script>
+  </html>
+  `
+  res.end(html);
 });
 
-// error handlers
-
-// development error handler
-// will print stacktrace
-if (app.get('env') === 'development') {
-  app.use(function(err, req, res, next) {
-    res.status(err.status || 500);
-    res.render('error', {
-      message: err.message,
-      error: err
-    });
-  });
-}
-
-// production error handler
-// no stacktraces leaked to user
-app.use(function(err, req, res, next) {
-  res.status(err.status || 500);
-  res.render('error', {
-    message: err.message,
-    error: {}
-  });
+var client = modbus.client.tcp.complete({ 
+  'host'              : '127.0.0.1', 
+  'port'              : 8888,
+  'autoReconnect'     : true,
+  'reconnectTimeout'  : 1000,
+  'timeout'           : 5000,
+  'unitId'            : 0
 });
 
-server.listen(3000, function () {
+app.get('/api/modbus', function(req, res){
+  client.connect();
+  client.on('connect', function(){
+    // read coils
+    client.readHoldingRegisters(0, 10).then(function (resp) {
+      res.json(resp);
+    }).fail(res.json);
+  })
+})
+
+app.post('/api/modbus', function(req, res){
+  console.log(req.body)
+  var input1 = req.body.input1;
+  var input2 = req.body.input2;
+  client.connect();
+  client.on('connect', function(){
+    // write coils input1 offset input2 (true/false)
+    client.writeSingleRegister(input1, input2).then(function (resp) {
+      console.log(resp)
+      res.json(resp)
+    }).fail(res.json);
+  })
+})
+
+app.listen(3000, function () {
   console.log('Example app listening on port 3000!');
 });
 
-var modbus = require('./jsmodbus/modbus.js');
-var client = modbus.client.tcp.complete({
-  'host' : '127.0.0.1',
-  'port' : 502,
-  'autoReconnect' : true,
-  'reconnectTimeout' : 1000,
-  'timeout' : 5000,
-  'unitId' : 0
-});
+var stampit = require('stampit'),
+    modbus = require('jsmodbus');
 
-client.on('connect',function(){
-  client.readHoldingRegisters(0,10).then(function (res) {
-    console.log(res);
-    }).fail(console.log)
-})
+// server
+modbus.server.tcp.complete({ port : 8888 });
 
-io.on('connection', function(socket){
-  socket.on('hahahah',function(data){
-    client.connect();
-    console.log(data);
-  })
-})
+
+
